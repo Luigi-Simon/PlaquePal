@@ -1,21 +1,64 @@
-import React, { useState } from 'react';
-import { Activity, ShieldAlert, Zap } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Activity, ShieldAlert, Zap, Wifi } from 'lucide-react';
+// NEW: Import Recharts
+import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
 
 export default function App() {
-  const [pressure, setPressure] = useState(45); // This simulates Jin En's hardware input
+  const [pressure, setPressure] = useState(0);
+  // NEW: State to hold the history of pressure readings for the graph
+  const [chartData, setChartData] = useState(Array(20).fill({ value: 0 }));
+  
+  const [wsStatus, setWsStatus] = useState('Connecting...');
+  const [statusColor, setStatusColor] = useState('text-yellow-500');
+
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws');
+
+    ws.onopen = () => {
+      setWsStatus('Live Connection Established');
+      setStatusColor('text-green-500');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.pressure !== undefined) {
+          const newPressure = data.pressure;
+          setPressure(newPressure);
+          
+          // NEW: Update the graph data (remove oldest, add newest)
+          setChartData(prevData => {
+            const newData = [...prevData.slice(1), { value: newPressure }];
+            return newData;
+          });
+        }
+      } catch (error) {
+        console.error("Error reading Arduino data:", error);
+      }
+    };
+
+    ws.onclose = () => {
+      setWsStatus('Disconnected - Check Backend');
+      setStatusColor('text-red-500');
+    };
+
+    return () => ws.close();
+  }, []);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 p-8 font-sans">
       <header className="flex justify-between items-center mb-10 border-b border-slate-800 pb-6">
         <div>
           <h1 className="text-4xl font-black tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.6)]">
-  PLAQUE<span className="text-white drop-shadow-none">PAL</span>
-</h1>
-          <p className="text-slate-500 font-medium">MedTech Sprintathon 2026 | Team Simon</p>
+            PLAQUE<span className="text-white drop-shadow-none">PAL</span>
+          </h1>
+          <p className="text-slate-500 font-medium">MedTech Sprintathon | Real-Time Telemetry</p>
         </div>
         <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-full border border-slate-800">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">System Ready</span>
+          <div className={`w-2 h-2 rounded-full ${statusColor === 'text-green-500' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+          <span className="text-xs font-bold uppercase tracking-widest text-slate-400">
+            {statusColor === 'text-green-500' ? 'System Ready' : 'System Offline'}
+          </span>
         </div>
       </header>
 
@@ -24,38 +67,69 @@ export default function App() {
         <div className="col-span-8 aspect-video bg-slate-900 rounded-3xl border-2 border-slate-800 flex items-center justify-center relative shadow-2xl">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-500/5 to-transparent"></div>
           <div className="text-center z-10">
-          <Activity size={80} className="mx-auto mb-4 text-cyan-400 drop-shadow-[0_0_25px_rgba(34,211,238,0.8)]" />
-            <p className="text-slate-500 font-mono text-sm uppercase tracking-[0.2em]">Waiting for Feed...</p>
+            <Activity size={80} className={`mx-auto mb-4 ${statusColor === 'text-green-500' ? 'text-cyan-400 drop-shadow-[0_0_25px_rgba(34,211,238,0.8)] animate-pulse' : 'text-slate-600'}`} />
+            <p className="text-slate-500 font-mono text-sm uppercase tracking-[0.2em]">
+              {statusColor === 'text-green-500' ? 'Awaiting Ultrasound Feed...' : 'Connection Lost...'}
+            </p>
           </div>
         </div>
 
         {/* Real-time Metrics */}
-        <div className="col-span-4 space-y-6">
+        <div className="col-span-4 space-y-6 flex flex-col">
+          {/* Pressure Card with Graph */}
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800">
             <div className="flex justify-between items-end mb-4">
-              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Probe Pressure</h3>
-              <span className={`text-2xl font-mono font-bold ${pressure > 80 ? 'text-red-500' : 'text-cyan-400'}`}>
+              <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest">Live Probe Pressure</h3>
+              <span className={`text-3xl font-mono font-bold ${pressure > 80 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]'}`}>
                 {pressure}%
               </span>
             </div>
-            <input 
-              type="range" 
-              className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-              value={pressure}
-              onChange={(e) => setPressure(e.target.value)}
-            />
+            
+            {/* The Recharts Graph */}
+            <div className="h-24 w-full mb-4 opacity-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <YAxis domain={[0, 100]} hide={true} />
+                  <Line 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke={pressure > 80 ? "#ef4444" : "#22d3ee"} 
+                    strokeWidth={3} 
+                    dot={false}
+                    isAnimationActive={true} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-300 ease-out ${pressure > 80 ? 'bg-red-500' : 'bg-cyan-500'}`}
+                style={{ width: `${Math.min(pressure, 100)}%` }}
+              ></div>
+            </div>
+            <button 
+              onClick={() => {
+                const testVal = Math.floor(Math.random() * 100);
+                setPressure(testVal);
+                setChartData(prev => [...prev.slice(1), { value: testVal }]);
+              }} 
+              className="text-xs font-bold tracking-widest bg-slate-800 hover:bg-slate-700 p-3 rounded-xl text-cyan-400 w-full mt-6 transition-colors border border-slate-700"
+            >
+              [TEST] INJECT FAKE ARDUINO DATA
+            </button>
           </div>
 
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 flex-grow">
             <h3 className="text-xs font-bold uppercase text-slate-500 tracking-widest mb-6">Device Status</h3>
             <div className="space-y-4">
               <div className="flex items-center gap-4 text-sm">
-                <Zap size={18} className="text-yellow-500" />
-                <span>WebSocket: <span className="text-slate-500">Connecting...</span></span>
+                <Wifi size={18} className={statusColor} />
+                <span>WebSocket: <span className={statusColor}>{wsStatus}</span></span>
               </div>
               <div className="flex items-center gap-4 text-sm">
-                <ShieldAlert size={18} className="text-cyan-500" />
-                <span>Arduino: <span className="text-green-500">COM3 Active</span></span>
+                <ShieldAlert size={18} className={statusColor === 'text-green-500' ? 'text-cyan-500' : 'text-slate-600'} />
+                <span>Arduino: <span className="text-slate-400">Syncing...</span></span>
               </div>
             </div>
           </div>
