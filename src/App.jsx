@@ -159,11 +159,17 @@ export default function App() {
                 style={{ width: `${Math.min(pressure, 100)}%` }}
               ></div>
             </div>
+{/* 3. THE UPDATED TEST BUTTON */}
             <button 
               onClick={() => {
+                // 1. Inject fake pressure
                 const testVal = Math.floor(Math.random() * 100);
                 setPressure(testVal);
                 setChartData(prev => [...prev.slice(1), { value: testVal }]);
+                
+                // 2. Force the system status to "Connected" so the blur drops!
+                setWsStatus('Live Connection Established');
+                setStatusColor('text-green-500');
               }} 
               className="text-xs font-bold tracking-widest bg-slate-800 hover:bg-slate-700 p-3 rounded-xl text-cyan-400 w-full mt-6 transition-colors border border-slate-700"
             >
