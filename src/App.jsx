@@ -64,16 +64,67 @@ export default function App() {
 
       <div className="grid grid-cols-12 gap-8">
         {/* Main Ultrasound Viewport */}
-        <div className="col-span-8 aspect-video bg-slate-900 rounded-3xl border-2 border-slate-800 flex items-center justify-center relative shadow-2xl">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-cyan-500/5 to-transparent"></div>
-          <div className="text-center z-10">
-            <Activity size={80} className={`mx-auto mb-4 ${statusColor === 'text-green-500' ? 'text-cyan-400 drop-shadow-[0_0_25px_rgba(34,211,238,0.8)] animate-pulse' : 'text-slate-600'}`} />
-            <p className="text-slate-500 font-mono text-sm uppercase tracking-[0.2em]">
-              {statusColor === 'text-green-500' ? 'Awaiting Ultrasound Feed...' : 'Connection Lost...'}
-            </p>
-          </div>
-        </div>
+{/* Main Ultrasound Viewport */}
+        <div className="col-span-8 aspect-video bg-slate-900 rounded-3xl border-2 border-slate-800 relative shadow-2xl overflow-hidden group">
+          
+          {/* FAKE ULTRASOUND BACKGROUND */}
+          {/* A dark grayscale image to simulate an ultrasound feed. You can swap the src with a real local image later! */}
+          <img 
+            src="https://images.unsplash.com/photo-1530497610245-94d3c16cda28?auto=format&fit=crop&q=80&w=1000" 
+            alt="Simulated Ultrasound" 
+            className="absolute inset-0 w-full h-full object-cover opacity-30 grayscale mix-blend-screen"
+          />
+          
+          {/* Scanline Overlay Effect for that medical monitor vibe */}
+          <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.3)_2px,rgba(0,0,0,0.3)_4px)] pointer-events-none"></div>
 
+          {/* === MEDIAPIPE MOCKUP OVERLAYS === */}
+          
+          {/* Bounding Box 1: Carotid Artery Tracking */}
+          <div className="absolute top-[25%] left-[20%] w-[50%] h-[40%] border-2 border-cyan-400 rounded bg-cyan-400/10 shadow-[0_0_15px_rgba(34,211,238,0.3)] transition-all duration-700 ease-in-out hover:bg-cyan-400/20">
+            <div className="absolute -top-6 left-[-2px] bg-cyan-400 text-slate-950 text-[10px] font-bold px-2 py-1 rounded-t tracking-wider">
+              CAROTID_ARTERY : 98.2%
+            </div>
+            {/* Corner brackets for extra tech feel */}
+            <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-cyan-300"></div>
+            <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-cyan-300"></div>
+          </div>
+
+          {/* Bounding Box 2: Plaque Detection (Danger!) */}
+          <div className="absolute top-[40%] left-[45%] w-[15%] h-[20%] border-2 border-red-500 rounded bg-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse">
+            <div className="absolute -top-6 left-[-2px] bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-t tracking-wider flex items-center gap-1">
+              <ShieldAlert size={10} /> PLAQUE_DETECTED : 89.4%
+            </div>
+            {/* Crosshair target in the middle */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-red-500/50">
+               +
+            </div>
+          </div>
+
+          {/* Viewport Telemetry Overlay */}
+          <div className="absolute bottom-4 left-4 flex gap-3">
+            <span className="bg-slate-950/80 border border-slate-700 text-cyan-400 text-xs px-3 py-1.5 rounded-md font-mono backdrop-blur-md flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
+              FPS: 24.1
+            </span>
+            <span className="bg-slate-950/80 border border-slate-700 text-slate-400 text-xs px-3 py-1.5 rounded-md font-mono backdrop-blur-md">
+              AI: MediaPipe Vision
+            </span>
+          </div>
+
+          {/* Center Connection Warning (Fades out if we get a real connection) */}
+          {statusColor !== 'text-green-500' && (
+            <div className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-20">
+              <div className="text-center bg-slate-900 border border-slate-700 p-6 rounded-2xl shadow-2xl">
+                <Activity size={48} className="mx-auto mb-4 text-slate-500 animate-bounce" />
+                <p className="text-slate-300 font-mono text-sm uppercase tracking-[0.1em] font-bold">
+                  Awaiting Probe Camera Feed...
+                </p>
+                <p className="text-slate-500 text-xs mt-2">Hardware syncing in progress</p>
+              </div>
+            </div>
+          )}
+        </div>
         {/* Real-time Metrics */}
         <div className="col-span-4 space-y-6 flex flex-col">
           {/* Pressure Card with Graph */}
