@@ -137,7 +137,7 @@ export default function App() {
         <div>
           <h1 className="text-4xl font-extrabold tracking-tighter text-cyan-400 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]">
             PLAQUE<span className="text-white drop-shadow-none">PAL</span>
-          }</h1>
+          </h1>
           <p className="text-slate-500 font-medium">MedTech Sprintathon | Real-Time Telemetry</p>
         </div>
         <div className="flex items-center gap-3 bg-slate-900 px-4 py-2 rounded-full border border-slate-800 backdrop-blur-sm">

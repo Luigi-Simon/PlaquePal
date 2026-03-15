@@ -1,1 +1,12 @@
+/* 1. Import the friendly font from Google */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');
+
+/* 2. Import Tailwind (v4 syntax) */
 @import "tailwindcss";
+
+/* 3. Tell Tailwind to use Poppins as the default sans font */
+@theme {
+  --font-sans: "Poppins", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* (Any custom CSS you already had can stay down here) */
