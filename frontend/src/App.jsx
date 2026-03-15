@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, ShieldAlert, Zap, Wifi } from 'lucide-react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import ScanResult from './ScanResult.jsx'; // Add this import!
 
 export default function App() {
   const [pressure, setPressure] = useState(0);
@@ -21,6 +22,19 @@ export default function App() {
   const [statusColor, setStatusColor] = useState('text-yellow-500');
   const [isConnected, setIsConnected] = useState(false);
 
+  // ScanResult modal
+  const [showReport, setShowReport] = useState(false);
+  const [reportData, setReportData] = useState({
+    scanId: "scn_884729",
+    overallRisk: "MODERATE",
+    scanQualityMetrics: { passedThreshold: true, averagePressurePct: 65.2 },
+    diagnosticResults: { plaqueBurdenScore: 42.5, vesselNarrowingPct: 30.1 },
+    clinicalRecommendations: [
+      "Schedule follow-up ultrasound in 6 months.",
+      "Review lipid-lowering therapy options.",
+      "Recommend lifestyle modifications."
+    ]
+  });
   // useEffect WebSocket logic remains exactly the same and is omitted for brevity)
   useEffect(() => {
     // ... (Your actual WebSocket setup code is here. Kept it omitted as requested.)
@@ -174,11 +188,21 @@ export default function App() {
             ANGLE: {typeof angle === 'number' ? angle.toFixed(1) : '0'}°
           </div>
 
-          {/* 3. Main Instruction Display - Reduced weight (bold) and Sentence case (less shouty) */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center w-[90%]">
+          {/* 3. Main Instruction Display & Trigger Button */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center w-[90%] flex flex-col items-center gap-6">
             <p className="text-6xl font-bold tracking-tighter text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.9)]">
               {instruction}
             </p>
+            
+            {/* THIS BUTTON ONLY APPEARS ON SUCCESS */}
+            {state === 'SUCCESS' && (
+              <button 
+                onClick={() => setShowReport(true)}
+                className="mt-4 px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xl rounded-full shadow-[0_0_20px_rgba(34,211,238,0.5)] transition-all animate-bounce"
+              >
+                View Scan Results
+              </button>
+            )}
           </div>
 
           {/* Guidance Messages (Softer styling) */}
@@ -276,6 +300,15 @@ export default function App() {
           </div>
         </div>
       </div>
+      
+      {/* FINAL REPORT CARD MODAL */}
+      {showReport && (
+        <ScanResult 
+          data={reportData} 
+          onClose={() => setShowReport(false)} 
+          onNewScan={() => window.location.reload()} 
+        />
+      )}
     </div>
   );
 }
