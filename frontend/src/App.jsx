@@ -1,43 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, ShieldAlert, Zap, Wifi } from 'lucide-react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
-import ScanResult from './ScanResult.jsx'; // Add this import!
 
 export default function App() {
   const [pressure, setPressure] = useState(0);
   const [chartData, setChartData] = useState(Array(20).fill({ value: 0 }));
   
   const [state, setState] = useState('POSITIONING');
-  // 1. Initial instruction is sentence case for friendly tone
   const [instruction, setInstruction] = useState('Adjust probe position');
-  const [angle, setAngle] = useState(80.0);
+  const [angle, setAngle] = useState({ current: 0, latitude: 0, longitude: 0 });
   const [angleCorrect, setAngleCorrect] = useState(false);
   const [holdProgress, setHoldProgress] = useState(0);
-  const [guidance, setGuidance] = useState([
-    "Tilt probe DOWN 20.0°",
-    "Reduce pressure by 40 units"
-  ]);
+  const [guidance, setGuidance] = useState([]);
   
   const [wsStatus, setWsStatus] = useState('Connecting...');
   const [statusColor, setStatusColor] = useState('text-yellow-500');
   const [isConnected, setIsConnected] = useState(false);
 
-  // ScanResult modal
-  const [showReport, setShowReport] = useState(false);
-  const [reportData, setReportData] = useState({
-    scanId: "scn_884729",
-    overallRisk: "MODERATE",
-    scanQualityMetrics: { passedThreshold: true, averagePressurePct: 65.2 },
-    diagnosticResults: { plaqueBurdenScore: 42.5, vesselNarrowingPct: 30.1 },
-    clinicalRecommendations: [
-      "Schedule follow-up ultrasound in 6 months.",
-      "Review lipid-lowering therapy options.",
-      "Recommend lifestyle modifications."
-    ]
-  });
-  // useEffect WebSocket logic remains exactly the same and is omitted for brevity)
   useEffect(() => {
-    // ... (Your actual WebSocket setup code is here. Kept it omitted as requested.)
     let ws = null;
     let reconnectTimeout = null;
 
@@ -59,11 +39,14 @@ export default function App() {
             
             // Update pressure and graph
             if (data.pressure !== undefined) {
-              setPressure(data.pressure);
-              setChartData(prevData => {
-                const newData = [...prevData.slice(1), { value: data.pressure }];
-                return newData;
-              });
+              const pressureValue = Number(data.pressure);
+              if (!isNaN(pressureValue)) {
+                setPressure(pressureValue);
+                setChartData(prevData => {
+                  const newData = [...prevData.slice(1), { value: pressureValue }];
+                  return newData;
+                });
+              }
             }
             
             // Update state
@@ -76,15 +59,30 @@ export default function App() {
               setInstruction(data.instruction);
             }
             
-            // Update angle - Extract only the number
-            if (data.angle && data.angle.current !== undefined) {
-              setAngle(data.angle.current);
-              setAngleCorrect(data.angle.is_correct);
+            // Update angle - Handle both object and number formats
+            if (data.angle) {
+              if (typeof data.angle === 'object' && data.angle.current !== undefined) {
+                setAngle({
+                  current: Number(data.angle.current) || 0,
+                  latitude: Number(data.angle.latitude) || 0,
+                  longitude: Number(data.angle.longitude) || 0
+                });
+                setAngleCorrect(data.angle.is_correct === true);
+              } else if (typeof data.angle === 'number') {
+                setAngle({
+                  current: data.angle,
+                  latitude: 0,
+                  longitude: 0
+                });
+              }
             }
             
             // Update progress
             if (data.hold_progress !== undefined) {
-              setHoldProgress(data.hold_progress);
+              const progress = Number(data.hold_progress);
+              if (!isNaN(progress)) {
+                setHoldProgress(Math.min(100, Math.max(0, progress)));
+              }
             }
             
             // Update guidance - Make sure it's an array
@@ -135,11 +133,11 @@ export default function App() {
     };
   }, []);
 
-  // Color based on state (kept slightly softer colors)
+  // Color based on state
   const getStateColor = () => {
     switch(state) {
       case 'POSITIONING': return 'bg-yellow-500/15 border-yellow-500/50 text-yellow-400';
-      case 'HOLDING': return 'bg-blue-500/15 border-blue-500/50 text-blue-400';
+      case 'SCANNING': return 'bg-blue-500/15 border-blue-500/50 text-blue-400';
       case 'SUCCESS': return 'bg-green-500/15 border-green-500/50 text-green-400';
       default: return 'bg-slate-500/15 border-slate-500/50 text-slate-400';
     }
@@ -163,9 +161,7 @@ export default function App() {
       </header>
 
       <div className="grid grid-cols-12 gap-8">
-        {/* ========================================================= */}
-        {/* MAIN ULTRASOUND VIEWPORT (FRIENDLIER STYLE EDIT)          */}
-        {/* ========================================================= */}
+        {/* MAIN ULTRASOUND VIEWPORT */}
         <div className="col-span-8 aspect-video bg-slate-900 rounded-3xl border-2 border-slate-800 relative shadow-2xl overflow-hidden group">
           
           {/* Ultrasound Background */}
@@ -178,34 +174,24 @@ export default function App() {
           {/* Scanline Overlay */}
           <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(0,0,0,0.3)_2px,rgba(0,0,0,0.3)_4px)] pointer-events-none"></div>
 
-          {/* 1. STATE Banner - Softer edges (rounded-2xl) and reduced weight (extrabold) */}
+          {/* STATE Banner */}
           <div className={`absolute top-6 left-6 px-8 py-4 rounded-2xl border-2 ${getStateColor()} font-extrabold text-2xl tracking-tight z-10 shadow-lg backdrop-blur-sm`}>
             STATE: {state}
           </div>
 
-          {/* 2. ANGLE Indicator - Softer edges and reduced weight */}
+          {/* ANGLE Indicator */}
           <div className={`absolute top-6 right-6 px-8 py-4 rounded-2xl border-2 ${angleCorrect ? 'bg-green-500/20 border-green-500 text-green-400' : 'bg-red-500/20 border-red-500 text-red-400'} font-extrabold text-2xl tracking-tight z-10 shadow-lg backdrop-blur-sm`}>
-            ANGLE: {typeof angle === 'number' ? angle.toFixed(1) : '0'}°
+            ANGLE: {typeof angle.current === 'number' ? angle.current.toFixed(1) : '0.0'}°
           </div>
 
-          {/* 3. Main Instruction Display & Trigger Button */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center w-[90%] flex flex-col items-center gap-6">
+          {/* Main Instruction Display */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center w-[90%]">
             <p className="text-6xl font-bold tracking-tighter text-cyan-400 drop-shadow-[0_0_20px_rgba(34,211,238,0.9)]">
               {instruction}
             </p>
-            
-            {/* THIS BUTTON ONLY APPEARS ON SUCCESS */}
-            {state === 'SUCCESS' && (
-              <button 
-                onClick={() => setShowReport(true)}
-                className="mt-4 px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xl rounded-full shadow-[0_0_20px_rgba(34,211,238,0.5)] transition-all animate-bounce"
-              >
-                View Scan Results
-              </button>
-            )}
           </div>
 
-          {/* Guidance Messages (Softer styling) */}
+          {/* Guidance Messages */}
           {guidance && guidance.length > 0 && (
             <div className="absolute bottom-4 left-4 bg-slate-950/80 border border-slate-700 rounded-2xl p-6 max-w-sm backdrop-blur-sm">
               {guidance.map((msg, idx) => (
@@ -229,18 +215,15 @@ export default function App() {
             </div>
           )}
         </div>
-        {/* ========================================================= */}
-        {/* END EDITED SECTION                                        */}
-        {/* ========================================================= */}
 
-        {/* Real-time Metrics (Subtly softened fonts) */}
+        {/* Real-time Metrics */}
         <div className="col-span-4 space-y-6 flex flex-col">
           {/* Pressure Card with Graph */}
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800">
             <div className="flex justify-between items-end mb-4">
               <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-widest">Live Probe Pressure</h3>
               <span className={`text-3xl font-mono font-semibold ${pressure > 80 ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'text-cyan-400 drop-shadow-[0_0_10px_rgba(34,211,238,0.8)]'}`}>
-                {typeof pressure === 'number' ? pressure : 0}%
+                {typeof pressure === 'number' ? pressure.toFixed(0) : 0}%
               </span>
             </div>
             
@@ -267,7 +250,7 @@ export default function App() {
               ></div>
             </div>
 
-            {state === 'HOLDING' && (
+            {state === 'SCANNING' && (
               <div className="mt-6">
                 <p className="text-xs text-slate-400 mb-2">Hold Progress: {holdProgress.toFixed(1)}%</p>
                 <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
@@ -280,7 +263,7 @@ export default function App() {
             )}
           </div>
 
-          {/* Device Status (Subtly softened fonts) */}
+          {/* Device Status */}
           <div className="bg-slate-900 p-6 rounded-3xl border border-slate-800 flex-grow">
             <h3 className="text-xs font-semibold uppercase text-slate-500 tracking-widest mb-6">Device Status</h3>
             <div className="space-y-4">
@@ -294,21 +277,16 @@ export default function App() {
               </div>
               <div className="flex items-center gap-4 text-sm font-medium">
                 <Activity size={18} className="text-cyan-500" />
-                <span>Angle: <span className="text-slate-400">{typeof angle === 'number' ? angle.toFixed(1) : '0'}°</span></span>
+                <span>Angle: <span className="text-slate-400">{typeof angle.current === 'number' ? angle.current.toFixed(1) : '0.0'}°</span></span>
+              </div>
+              <div className="flex items-center gap-4 text-sm font-medium">
+                <Zap size={18} className="text-purple-500" />
+                <span>Lat/Lon: <span className="text-slate-400">{angle.latitude.toFixed(1)}° / {angle.longitude.toFixed(1)}°</span></span>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
-      {/* FINAL REPORT CARD MODAL */}
-      {showReport && (
-        <ScanResult 
-          data={reportData} 
-          onClose={() => setShowReport(false)} 
-          onNewScan={() => window.location.reload()} 
-        />
-      )}
     </div>
   );
 }
