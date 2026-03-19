@@ -71,13 +71,13 @@ def find_arduino_port():
 
 def parse_telemetry_line(line: str) -> dict | None:
     """
-    Parse Arduino CSV format: PRESSURE,LATITUDE,LONGITUDE
-    Example: 45.00,-78.59,-5.47
+    Parse Arduino CSV format: PRESSURE,PITCH,ROLL
+    Example: 0.00,-71.37,-3.60
     
     Format breakdown:
     - PRESSURE: 0-100 (from FSR4020)
-    - LATITUDE: -90 to +90 (tilt forward/backward)
-    - LONGITUDE: -90 to +90 (tilt left/right)
+    - PITCH: -90 to +90 (tilt forward/backward)
+    - ROLL: -90 to +90 (tilt left/right)
     """
     line = line.strip()
     
@@ -93,20 +93,19 @@ def parse_telemetry_line(line: str) -> dict | None:
     
     try:
         pressure_raw = float(parts[0].strip())
-        latitude_raw = float(parts[1].strip())
-        longitude_raw = float(parts[2].strip())
+        pitch_raw = float(parts[1].strip())
+        roll_raw = float(parts[2].strip())
         
         # ===== PRESSURE CONVERSION =====
-        # Already in 0-100 scale from Arduino
-        pressure = int(max(0, min(100, pressure_raw)))
+        # Convert to 0-100 scale - NO FALLBACK, show actual reading
+        pressure = int(max(0, min(100, abs(pressure_raw))))
         
         # ===== ANGLE CONVERSION =====
         # Convert -90/+90 range to 0-90 absolute values
-        lat = abs(latitude_raw)
-        lon = abs(longitude_raw)
+        lat = abs(pitch_raw)
+        lon = abs(roll_raw)
         
-        # For carotid scanning, use the larger angle as primary
-        # This represents the most significant tilt
+        # Use the larger angle as primary
         primary_angle = max(lat, lon)
         
         # Clamp values
@@ -120,8 +119,8 @@ def parse_telemetry_line(line: str) -> dict | None:
             "lon": lon,
             "primary_angle": primary_angle,
             "raw_pressure": pressure_raw,
-            "raw_lat": latitude_raw,
-            "raw_lon": longitude_raw
+            "raw_lat": pitch_raw,
+            "raw_lon": roll_raw
         }
         
     except (ValueError, IndexError) as e:
@@ -288,13 +287,24 @@ def generate_guidance(angle: float, pressure: int, angle_history: list,
     return guidance
 
 # ============================================
-# STATE MACHINE
+# STATE MACHINE WITH RESET CAPABILITY
 # ============================================
 
 def update_state_machine(angle: float, pressure: int, angle_history: list, 
                         pressure_history: list, current_state: State, 
-                        hold_start_time) -> tuple:
-    """State machine logic"""
+                        hold_start_time, reset_requested: bool = False) -> tuple:
+    """State machine logic with reset capability"""
+    
+    # Handle reset request
+    if reset_requested:
+        print("🔄 Scan reset requested - returning to POSITIONING")
+        return (
+            State.POSITIONING,
+            "Adjust probe position",
+            None,
+            0.0,
+            STABILITY_WINDOW
+        )
     
     quality_data = quality_calculator.calculate_overall_quality(
         angle, pressure, angle_history, pressure_history
@@ -362,14 +372,27 @@ def update_state_machine(angle: float, pressure: int, angle_history: list,
     return (current_state, "Error", hold_start_time, 0.0, STABILITY_WINDOW)
 
 # ============================================
-# WEBSOCKET
+# WEBSOCKET WITH RESET COMMAND HANDLING
 # ============================================
+
+# Global flag for reset
+reset_scan_flag = False
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    global reset_scan_flag
+    
+    # Connection limit
+    MAX_CONNECTIONS = 10
+    if len(active_connections) >= MAX_CONNECTIONS:
+        await websocket.close(code=1008, reason="Too many connections")
+        print(f"⚠️ Rejected connection: limit of {MAX_CONNECTIONS} reached")
+        return
+    
     await websocket.accept()
     active_connections.append(websocket)
-    print(f"✅ Frontend connected. Total clients: {len(active_connections)}")
+    client_id = id(websocket)
+    print(f"✅ Frontend connected (ID: {client_id}). Total clients: {len(active_connections)}")
     
     try:
         await websocket.send_json({
@@ -377,22 +400,42 @@ async def websocket_endpoint(websocket: WebSocket):
             "status": "connected",
             "message": "Backend ready"
         })
-    except:
-        pass
+    except Exception as e:
+        print(f"⚠️ Failed to send welcome message: {e}")
     
     try:
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
+                
+                # Handle ping/pong
                 if msg.get("type") == "ping":
                     await websocket.send_json({"type": "pong"})
-            except:
+                
+                # Handle reset command
+                elif msg.get("command") == "RESET_SCAN":
+                    print("🔄 Reset scan command received from frontend")
+                    reset_scan_flag = True
+                    await websocket.send_json({
+                        "type": "command_ack",
+                        "command": "RESET_SCAN",
+                        "status": "accepted"
+                    })
+                    
+            except json.JSONDecodeError:
                 pass
+            except Exception as e:
+                print(f"⚠️ Error handling message: {e}")
+                
     except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"⚠️ WebSocket error for client {client_id}: {e}")
+    finally:
         if websocket in active_connections:
             active_connections.remove(websocket)
-        print(f"❌ Frontend disconnected. Total clients: {len(active_connections)}")
+        print(f"❌ Frontend disconnected (ID: {client_id}). Total clients: {len(active_connections)}")
 
 # ============================================
 # MAIN DATA LOOP
@@ -432,7 +475,7 @@ async def main_data_loop():
 
 async def arduino_data_loop(port: str):
     """Read from real Arduino"""
-    global current_state, hold_start_time, angle_history, pressure_history
+    global current_state, hold_start_time, angle_history, pressure_history, reset_scan_flag
     
     BAUD_RATE = 9600
     
@@ -475,10 +518,17 @@ async def arduino_data_loop(port: str):
                         angle_history.pop(0)
                         pressure_history.pop(0)
                     
+                    # Check for reset flag
+                    reset_requested = reset_scan_flag
+                    if reset_requested:
+                        reset_scan_flag = False  # Clear the flag
+                        angle_history.clear()    # Clear history for fresh scan
+                        pressure_history.clear()
+                    
                     # Update state machine
                     new_state, instruction, new_hold_start, hold_elapsed, hold_remaining = update_state_machine(
                         angle, pressure, angle_history, pressure_history,
-                        current_state, hold_start_time
+                        current_state, hold_start_time, reset_requested
                     )
                     
                     current_state = new_state
@@ -518,15 +568,16 @@ async def arduino_data_loop(port: str):
                     
                     # Broadcast
                     disconnected = []
-                    for connection in active_connections:
+                    for connection in active_connections[:]:
                         try:
                             await connection.send_json(response)
-                        except:
+                        except Exception as e:
                             disconnected.append(connection)
                     
                     for conn in disconnected:
                         if conn in active_connections:
                             active_connections.remove(conn)
+                            print(f"🗑️ Removed dead connection. Active: {len(active_connections)}")
                 
                 await asyncio.sleep(0.01)
         
@@ -542,7 +593,7 @@ async def arduino_data_loop(port: str):
 
 async def mock_data_loop():
     """Fallback mock mode"""
-    global current_state, hold_start_time, angle_history, pressure_history
+    global current_state, hold_start_time, angle_history, pressure_history, reset_scan_flag
     
     iteration = 0
     
@@ -557,9 +608,16 @@ async def mock_data_loop():
                 angle_history.pop(0)
                 pressure_history.pop(0)
             
+            # Check for reset flag
+            reset_requested = reset_scan_flag
+            if reset_requested:
+                reset_scan_flag = False
+                angle_history.clear()
+                pressure_history.clear()
+            
             new_state, instruction, new_hold_start, hold_elapsed, hold_remaining = update_state_machine(
                 angle, pressure, angle_history, pressure_history,
-                current_state, hold_start_time
+                current_state, hold_start_time, reset_requested
             )
             
             current_state = new_state
@@ -592,7 +650,7 @@ async def mock_data_loop():
                 print(f"[MOCK {current_state.value}] Angle:{angle:.1f}° Pressure:{pressure} Quality:{quality['overall_quality']:.1f}% | Clients: {len(active_connections)}")
             
             disconnected = []
-            for connection in active_connections:
+            for connection in active_connections[:]:
                 try:
                     await connection.send_json(response)
                 except:
@@ -611,5 +669,4 @@ async def mock_data_loop():
 if __name__ == "__main__":
     print("🚀 Starting PlaquePal Backend Server...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
 
