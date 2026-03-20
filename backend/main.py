@@ -194,6 +194,14 @@ class ScanQualityCalculator:
         else:
             return max(0, 100 - avg_cv * 2)
     
+    def is_angle_acceptable(self, angle: float) -> bool:
+        """Check if angle is within acceptable range (55-65°)"""
+        return 55 <= angle <= 65
+    
+    def is_pressure_acceptable(self, pressure: int) -> bool:
+        """Check if pressure is within acceptable range (40-60)"""
+        return 40 <= pressure <= 60
+    
     def calculate_overall_quality(self, angle: float, pressure: int, 
                                  angle_history: list, pressure_history: list) -> dict:
         """Calculate overall scan quality"""
@@ -203,12 +211,22 @@ class ScanQualityCalculator:
         
         overall_q = (0.40 * q_angle + 0.25 * q_pressure + 0.35 * q_stability)
         
+        # CRITICAL: Both angle AND pressure must be acceptable
+        angle_ok = self.is_angle_acceptable(angle)
+        pressure_ok = self.is_pressure_acceptable(pressure)
+        both_acceptable = angle_ok and pressure_ok
+        
+        # Only pass threshold if BOTH conditions met AND overall quality good
+        passes_threshold = both_acceptable and overall_q >= QUALITY_THRESHOLD
+        
         return {
             "angle_quality": round(q_angle, 1),
             "pressure_quality": round(q_pressure, 1),
             "stability_quality": round(q_stability, 1),
             "overall_quality": round(overall_q, 1),
-            "passes_threshold": overall_q >= QUALITY_THRESHOLD
+            "angle_acceptable": angle_ok,
+            "pressure_acceptable": pressure_ok,
+            "passes_threshold": passes_threshold
         }
 
 quality_calculator = ScanQualityCalculator()
@@ -260,29 +278,43 @@ def generate_guidance(angle: float, pressure: int, angle_history: list,
     """Generate real-time guidance for user"""
     guidance = []
     
+    # Check individual conditions
+    angle_ok = 55 <= angle <= 65
+    pressure_ok = 40 <= pressure <= 60
+    
     # Angle guidance (targeting 60°)
     if angle < 55:
         diff = 55 - angle
-        guidance.append(f"Tilt probe UP {diff:.1f}° more")
+        guidance.append(f"⚠️ ANGLE: Tilt probe UP {diff:.1f}° more")
     elif angle > 65:
         diff = angle - 65
-        guidance.append(f"Tilt probe DOWN {diff:.1f}°")
+        guidance.append(f"⚠️ ANGLE: Tilt probe DOWN {diff:.1f}°")
+    else:
+        guidance.append(f"✅ ANGLE: Perfect at {angle:.1f}°")
     
     # Pressure guidance (40-60 range)
     if pressure < 40:
-        diff = 40 - pressure
-        guidance.append(f"Increase pressure by {diff:.0f} units")
+        if pressure == 0:
+            guidance.append(f"⚠️ PRESSURE: Apply pressure to sensor!")
+        else:
+            diff = 40 - pressure
+            guidance.append(f"⚠️ PRESSURE: Increase by {diff:.0f} units")
     elif pressure > 60:
         diff = pressure - 60
-        guidance.append(f"Reduce pressure by {diff:.0f} units")
+        guidance.append(f"⚠️ PRESSURE: Reduce by {diff:.0f} units")
+    else:
+        guidance.append(f"✅ PRESSURE: Perfect at {pressure}")
     
-    # Stability guidance
-    if len(angle_history) > 3:
-        import statistics
-        recent = angle_history[-10:]
-        angle_std = statistics.stdev(recent) if len(recent) > 1 else 0
-        if angle_std > 5:
-            guidance.append("Hold probe STEADY")
+    # Stability guidance (only if both angle and pressure are good)
+    if angle_ok and pressure_ok:
+        if len(angle_history) > 3:
+            import statistics
+            recent = angle_history[-10:]
+            angle_std = statistics.stdev(recent) if len(recent) > 1 else 0
+            if angle_std > 5:
+                guidance.append("⚠️ STABILITY: Hold probe STEADY")
+            else:
+                guidance.append("✅ STABILITY: Hold is stable!")
     
     return guidance
 
@@ -310,8 +342,14 @@ def update_state_machine(angle: float, pressure: int, angle_history: list,
         angle, pressure, angle_history, pressure_history
     )
     
+    # Extract individual checks
+    angle_ok = quality_data["angle_acceptable"]
+    pressure_ok = quality_data["pressure_acceptable"]
+    passes_threshold = quality_data["passes_threshold"]
+    
     if current_state == State.POSITIONING:
-        if quality_data["passes_threshold"]:
+        if passes_threshold:
+            print(f"✅ Quality threshold met! Angle: {angle:.1f}° ✓ | Pressure: {pressure} ✓ | Moving to SCANNING")
             return (
                 State.SCANNING,
                 "Perfect positioning! Hold steady...",
@@ -320,7 +358,19 @@ def update_state_machine(angle: float, pressure: int, angle_history: list,
                 STABILITY_WINDOW
             )
         else:
-            instruction = "Adjust probe position"
+            # Provide specific feedback on what's missing
+            if not angle_ok and not pressure_ok:
+                instruction = "Fix angle AND pressure"
+            elif not angle_ok:
+                instruction = "Adjust probe angle"
+            elif not pressure_ok:
+                if pressure == 0:
+                    instruction = "Apply pressure to sensor"
+                else:
+                    instruction = "Adjust probe pressure"
+            else:
+                instruction = "Adjust probe position"
+            
             return (
                 State.POSITIONING,
                 instruction,
@@ -330,10 +380,21 @@ def update_state_machine(angle: float, pressure: int, angle_history: list,
             )
     
     elif current_state == State.SCANNING:
-        if not quality_data["passes_threshold"]:
+        if not passes_threshold:
+            # Determine what was lost
+            if not angle_ok and not pressure_ok:
+                reason = "angle and pressure lost"
+            elif not angle_ok:
+                reason = "angle lost"
+            elif not pressure_ok:
+                reason = "pressure lost"
+            else:
+                reason = "stability lost"
+            
+            print(f"⚠️ Quality lost during scanning: {reason}")
             return (
                 State.POSITIONING,
-                "Position lost! Reposition probe",
+                f"Position lost! Reposition probe",
                 None,
                 0.0,
                 STABILITY_WINDOW
@@ -343,6 +404,7 @@ def update_state_machine(angle: float, pressure: int, angle_history: list,
         hold_remaining = max(0, STABILITY_WINDOW - hold_elapsed)
         
         if hold_elapsed >= STABILITY_WINDOW:
+            print(f"🎉 Scan complete! Final - Angle: {angle:.1f}° | Pressure: {pressure} | Quality: {quality_data['overall_quality']:.1f}%")
             return (
                 State.SUCCESS,
                 "Scan complete! Analysis successful!",
@@ -562,8 +624,8 @@ async def arduino_data_loop(port: str):
                     # Console output
                     if line_count % 10 == 0:
                         print(f"[{current_state.value}] "
-                              f"Angle:{angle:.1f}° (LAT:{parsed['raw_lat']:.1f}° LON:{parsed['raw_lon']:.1f}°) "
-                              f"P:{pressure} "
+                              f"Angle:{angle:.1f}° {'✓' if quality['angle_acceptable'] else '✗'} | "
+                              f"P:{pressure} {'✓' if quality['pressure_acceptable'] else '✗'} | "
                               f"Q:{quality['overall_quality']:.1f}% | Clients: {len(active_connections)}")
                     
                     # Broadcast
@@ -647,7 +709,10 @@ async def mock_data_loop():
             
             iteration += 1
             if iteration % 10 == 0:
-                print(f"[MOCK {current_state.value}] Angle:{angle:.1f}° Pressure:{pressure} Quality:{quality['overall_quality']:.1f}% | Clients: {len(active_connections)}")
+                print(f"[MOCK {current_state.value}] "
+                      f"Angle:{angle:.1f}° {'✓' if quality['angle_acceptable'] else '✗'} | "
+                      f"P:{pressure} {'✓' if quality['pressure_acceptable'] else '✗'} | "
+                      f"Q:{quality['overall_quality']:.1f}% | Clients: {len(active_connections)}")
             
             disconnected = []
             for connection in active_connections[:]:
@@ -669,4 +734,5 @@ async def mock_data_loop():
 if __name__ == "__main__":
     print("🚀 Starting PlaquePal Backend Server...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
 
