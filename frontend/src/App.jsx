@@ -91,7 +91,7 @@ export default function App() {
               setInstruction(data.instruction);
             }
             
-            // Update angle
+            // Update angle - NOW with individual acceptance status
             if (data.angle) {
               if (typeof data.angle === 'object' && data.angle.current !== undefined) {
                 setAngle({
@@ -99,7 +99,12 @@ export default function App() {
                   latitude: Number(data.angle.latitude) || 0,
                   longitude: Number(data.angle.longitude) || 0
                 });
-                setAngleCorrect(data.angle.is_correct === true);
+                // Use the specific angle_acceptable flag from quality data
+                if (data.quality && data.quality.angle_acceptable !== undefined) {
+                  setAngleCorrect(data.quality.angle_acceptable);
+                } else {
+                  setAngleCorrect(data.angle.is_correct === true);
+                }
               } else if (typeof data.angle === 'number') {
                 setAngle({
                   current: data.angle,
@@ -258,7 +263,7 @@ export default function App() {
 
               {/* Main Feedback Loop */}
               <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center w-[90%] z-10">
-                <p className={`text-8xl font-black tracking-tight transition-all duration-300 ${angleCorrect && pressure <= 80 ? 'text-green-400 drop-shadow-[0_0_30px_rgba(74,222,128,0.7)]' : pressure > 80 ? 'text-red-400 drop-shadow-[0_0_30px_rgba(248,113,113,0.7)]' : 'text-cyan-300 drop-shadow-[0_0_30px_rgba(34,211,238,0.7)]'}`}>
+                <p className={`text-8xl font-black tracking-tight transition-all duration-300 ${angleCorrect && pressure >= 40 && pressure <= 60 ? 'text-green-400 drop-shadow-[0_0_30px_rgba(74,222,128,0.7)]' : pressure > 80 ? 'text-red-400 drop-shadow-[0_0_30px_rgba(248,113,113,0.7)]' : 'text-cyan-300 drop-shadow-[0_0_30px_rgba(34,211,238,0.7)]'}`}>
                   {instruction}
                 </p>
                 
@@ -273,8 +278,8 @@ export default function App() {
                 <div className="absolute bottom-6 left-6 bg-slate-950/90 border border-slate-700 rounded-2xl p-6 max-w-sm backdrop-blur-sm z-10 shadow-xl">
                   <p className="text-xs font-semibold uppercase text-slate-500 tracking-widest mb-3">Live Corrections</p>
                   {guidance.map((msg, idx) => (
-                    <p key={idx} className="text-sm font-medium text-yellow-400 mb-2 last:mb-0 flex items-center gap-2">
-                      <span>⚠️</span> {msg}
+                    <p key={idx} className={`text-sm font-medium mb-2 last:mb-0 flex items-center gap-2 ${msg.includes('✅') ? 'text-green-400' : 'text-yellow-400'}`}>
+                      {msg}
                     </p>
                   ))}
                 </div>
@@ -439,5 +444,6 @@ export default function App() {
     </div>
   );
 }
+
 
 
